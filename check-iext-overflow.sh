@@ -6,11 +6,13 @@ mntpnt=/mnt/
 fssize=1G
 bsize=4096
 fillfs=${mntpnt}/fill-fs.bin
+# dirbsize=65536
+dirbsize=4096
 
 mkfs_and_mount()
 {
 	umount $dev > /dev/null 2>&1
-	mkfs.xfs -f -K -b size=${bsize} -d size=${fssize} -m reflink=1,rmapbt=1 $dev || \
+	mkfs.xfs -f -K -n size=${dirbsize} -b size=${bsize} -d size=${fssize} -m reflink=1,rmapbt=1 $dev || \
 		{ print "Unable to mkfs.xfs $dev"; exit 1 }
 	mount -o uquota $dev $mntpnt || \
 		{ print "Unable to mount $dev"; exit 1 }
@@ -268,11 +270,41 @@ attr_iext_count_overflow_check()
 	xfs_io -f -c "fiemap -a" $testfile
 }
 
-dir_iext_count_overflow_check()
+# Directory: Create new files
+dir_entry_create_0_iext_count_overflow_check()
 {
 	dent_len=$(uuidgen | wc -c)
 	blksz=$(stat -f -c %S ${mntpnt})
-	nr_dents=$(($blksz * 20 / $dent_len))
+	nr_dents=$(($dirbsize * 20 / $dent_len))
+	testfile=${mntpnt}/testfile
+
+	touch $testfile
+	dd if=/dev/zero of=${testfile} bs=4k
+	sync
+	# /root/repos/xfstests-dev/src/punch-alternating $testfile
+	/root/repos/xfstests-dev/src/punch-alternating -o 16 -s 16 -i 32 /mnt/testfile
+	sync
+
+	print "nr_dents = $nr_dents; dent_len = $dent_len"
+
+	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
+	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+	# xfs_io -x -c 'fsmap' $mntpnt
+
+	for i in $(seq 1 $nr_dents); do
+		touch ${mntpnt}/$(uuidgen) || break
+	done
+
+	xfs_bmap ${mntpnt}
+}
+
+# link
+dir_entry_create_1_iext_count_overflow_check()
+{
+	dent_len=$(uuidgen | wc -c)
+	blksz=$(stat -f -c %S ${mntpnt})
+	nr_dents=$(($dirbsize * 20 / $dent_len))
 	testfile=${mntpnt}/testfile
 
 	touch $testfile
@@ -286,12 +318,105 @@ dir_iext_count_overflow_check()
 	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
 	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
 
+	# xfs_io -x -c 'fsmap' $mntpnt
+
 	for i in $(seq 1 $nr_dents); do
-		touch ${mntpnt}/$(uuidgen) || break
+		link $testfile ${mntpnt}/$(uuidgen) || break;
 	done
 
 	xfs_bmap ${mntpnt}
 }
+
+# directory: rename
+dir_entry_create_2_iext_count_overflow_check()
+{
+	dent_len=$(uuidgen | wc -c)
+	blksz=$(stat -f -c %S ${mntpnt})
+	nr_dents=$(($dirbsize * 20 / $dent_len))
+	testfile=${mntpnt}/testfile
+	dstdir=${mntpnt}/dstdir
+
+	touch $testfile
+	mkdir $dstdir
+	dd if=/dev/zero of=${testfile} bs=4k
+	sync
+	/root/repos/xfstests-dev/src/punch-alternating $testfile
+	sync
+
+	print "nr_dents = $nr_dents; dent_len = $dent_len"
+
+	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
+	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+	# xfs_io -x -c 'fsmap' $mntpnt
+
+	for i in $(seq 1 $nr_dents); do
+		tmpfile=${mntpnt}/$(uuidgen)
+		touch $tmpfile || break;
+		mv $tmpfile $dstdir || break;
+	done
+
+	xfs_bmap ${mntpnt}
+}
+
+# directory: symlink
+dir_entry_create_3_iext_count_overflow_check()
+{
+	dent_len=$(uuidgen | wc -c)
+	blksz=$(stat -f -c %S ${mntpnt})
+	nr_dents=$(($dirbsize * 20 / $dent_len))
+	testfile=${mntpnt}/testfile
+
+	touch $testfile
+	dd if=/dev/zero of=${testfile} bs=4k
+	sync
+	/root/repos/xfstests-dev/src/punch-alternating $testfile
+	sync
+
+	print "nr_dents = $nr_dents; dent_len = $dent_len"
+
+	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
+	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+	# xfs_io -x -c 'fsmap' $mntpnt
+
+	for i in $(seq 1 $nr_dents); do
+		ln -s $testfile ${mntpnt}/$(uuidgen) || break;
+	done
+
+	xfs_bmap ${mntpnt}
+}
+
+dir_entry_remove_4_iext_count_overflow_check()
+{
+	dent_len=$(uuidgen | wc -c)
+	blksz=$(stat -f -c %S ${mntpnt})
+	nr_dents=$(($dirbsize * 3 / $dent_len))
+	testfile=${mntpnt}/testfile
+
+	touch $testfile
+	dd if=/dev/zero of=${testfile} bs=4k
+	sync
+	/root/repos/xfstests-dev/src/punch-alternating $testfile
+	sync
+
+	print "nr_dents = $nr_dents; dent_len = $dent_len"
+
+	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+	last=""
+	for i in $(seq 1 $nr_dents); do
+		last=$(uuidgen)
+		touch ${mntpnt}/$last
+	done
+
+	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
+
+	rm  ${mntpnt}/$last
+
+	xfs_bmap ${mntpnt}
+}
+
 
 # buffer i/o - processed by bio's endio
 write_unwritten_0_iext_count_overflow_check()
@@ -427,14 +552,18 @@ tests=(# add_nosplit_0_iext_count_overflow_check
        # add_nosplit_1_iext_count_overflow_check
        # add_nosplit_2_iext_count_overflow_check
        # add_nosplit_3_iext_count_overflow_check
-	add_nosplit_4_iext_count_overflow_check
+	# add_nosplit_4_iext_count_overflow_check
 	# add_nosplit_5_iext_count_overflow_check
        # punch_hole_0_iext_count_overflow_check
        # punch_hole_1_iext_count_overflow_check
        # punch_hole_2_iext_count_overflow_check
        # punch_hole_3_iext_count_overflow_check
-       # attr_iext_count_overflow_check
-       # dir_iext_count_overflow_check
+	# attr_iext_count_overflow_check
+	# dir_entry_create_0_iext_count_overflow_check
+	# dir_entry_create_1_iext_count_overflow_check
+	# dir_entry_create_2_iext_count_overflow_check
+	# dir_entry_create_3_iext_count_overflow_check
+	dir_entry_remove_4_iext_count_overflow_check
        # write_unwritten_0_iext_count_overflow_check
        # write_unwritten_1_iext_count_overflow_check
        # reflink_end_cow_iext_count_overflow_check
