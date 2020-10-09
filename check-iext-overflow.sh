@@ -244,7 +244,7 @@ punch_hole_3_iext_count_overflow_check()
 	xfs_io -c fiemap $testfile | grep -i -v hole
 }
 
-attr_iext_count_overflow_check()
+attr_iext_set_count_overflow_check()
 {
 	attr_len=$(uuidgen | wc -c)
 	blksz=$(stat -f -c %S ${mntpnt})
@@ -268,6 +268,39 @@ attr_iext_count_overflow_check()
 
 	ls -i $testfile
 	xfs_io -f -c "fiemap -a" $testfile
+}
+
+
+attr_iext_remove_count_overflow_check()
+{
+	attr_len=$(uuidgen | wc -c)
+	blksz=$(stat -f -c %S ${mntpnt})
+	# Todo: Calculate the number of blocks correctly. The current number is
+	# a loose upper bound.
+	nr_attrs=$(($blksz * 2 / $attr_len))
+	testfile=${mntpnt}/testfile
+
+	touch $testfile
+	dd if=/dev/zero of=${testfile} bs=4k
+	sync
+	/root/repos/xfstests-dev/src/punch-alternating $testfile
+	sync
+
+	print "nr_attrs = $nr_attrs; attr_len = $attr_len"
+
+	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+	last=""
+	for i in $(seq 1 $nr_attrs); do
+		last="trusted.""$(uuidgen)"
+		setfattr -n $last $testfile || break;
+	done
+
+	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
+
+	setfattr -x $last $testfile
+
+	filefrag -b1 -x -v /mnt/testfile
 }
 
 # Directory: Create new files
@@ -588,7 +621,8 @@ tests=(add_nosplit_0_iext_count_overflow_check
        punch_hole_1_iext_count_overflow_check
        punch_hole_2_iext_count_overflow_check
        punch_hole_3_iext_count_overflow_check
-       attr_iext_count_overflow_check
+       attr_iext_set_count_overflow_check
+       attr_iext_remove_count_overflow_check
        dir_entry_create_0_iext_count_overflow_check
        dir_entry_create_1_iext_count_overflow_check
        dir_entry_create_2_iext_count_overflow_check
