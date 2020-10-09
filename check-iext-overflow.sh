@@ -281,8 +281,8 @@ dir_entry_create_0_iext_count_overflow_check()
 	touch $testfile
 	dd if=/dev/zero of=${testfile} bs=4k
 	sync
-	# /root/repos/xfstests-dev/src/punch-alternating $testfile
-	/root/repos/xfstests-dev/src/punch-alternating -o 16 -s 16 -i 32 /mnt/testfile
+	/root/repos/xfstests-dev/src/punch-alternating $testfile
+	# /root/repos/xfstests-dev/src/punch-alternating -o 16 -s 16 -i 32 /mnt/testfile
 	sync
 
 	print "nr_dents = $nr_dents; dent_len = $dent_len"
@@ -385,6 +385,36 @@ dir_entry_create_3_iext_count_overflow_check()
 	done
 
 	xfs_bmap ${mntpnt}
+}
+
+dir_entry_create_4_iext_count_overflow_check()
+{
+	dent_len=$(uuidgen | wc -c)
+	blksz=$(stat -f -c %S ${mntpnt})
+	nr_dents=$(($dirbsize * 3 / $dent_len))
+	testfile=${mntpnt}/testfile
+	srcdir=${mntpnt}/srcdir
+	dstdir=${mntpnt}/dstdir
+
+	mkdir $srcdir $dstdir
+
+	dd if=/dev/zero of=${testfile} bs=4k
+	sync
+	/root/repos/xfstests-dev/src/punch-alternating $testfile
+	sync
+
+	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+	for i in $(seq 1 $nr_dents); do
+		touch ${srcdir}/$(uuidgen) || break
+	done
+
+	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
+
+	for dentry in $(ls -1 $srcdir); do
+		mv ${srcdir}/${dentry} $dstdir || break
+	done
+
 }
 
 dir_entry_remove_4_iext_count_overflow_check()
@@ -548,27 +578,28 @@ swap_rmap_iext_count_overflow_check()
 	xfs_io -f -c "swapext $donor" $src
 }
 
-tests=(# add_nosplit_0_iext_count_overflow_check
-       # add_nosplit_1_iext_count_overflow_check
-       # add_nosplit_2_iext_count_overflow_check
-       # add_nosplit_3_iext_count_overflow_check
-	# add_nosplit_4_iext_count_overflow_check
-	# add_nosplit_5_iext_count_overflow_check
-       # punch_hole_0_iext_count_overflow_check
-       # punch_hole_1_iext_count_overflow_check
-       # punch_hole_2_iext_count_overflow_check
-       # punch_hole_3_iext_count_overflow_check
-	# attr_iext_count_overflow_check
-	# dir_entry_create_0_iext_count_overflow_check
-	# dir_entry_create_1_iext_count_overflow_check
-	# dir_entry_create_2_iext_count_overflow_check
-	# dir_entry_create_3_iext_count_overflow_check
-	dir_entry_remove_4_iext_count_overflow_check
-       # write_unwritten_0_iext_count_overflow_check
-       # write_unwritten_1_iext_count_overflow_check
-       # reflink_end_cow_iext_count_overflow_check
-       # reflink_remap_iext_count_overflow_check
-       # swap_rmap_iext_count_overflow_check
+tests=(add_nosplit_0_iext_count_overflow_check
+       add_nosplit_1_iext_count_overflow_check
+       add_nosplit_2_iext_count_overflow_check
+       add_nosplit_3_iext_count_overflow_check
+       add_nosplit_4_iext_count_overflow_check
+       add_nosplit_5_iext_count_overflow_check
+       punch_hole_0_iext_count_overflow_check
+       punch_hole_1_iext_count_overflow_check
+       punch_hole_2_iext_count_overflow_check
+       punch_hole_3_iext_count_overflow_check
+       attr_iext_count_overflow_check
+       dir_entry_create_0_iext_count_overflow_check
+       dir_entry_create_1_iext_count_overflow_check
+       dir_entry_create_2_iext_count_overflow_check
+       dir_entry_create_3_iext_count_overflow_check
+       dir_entry_create_4_iext_count_overflow_check
+       dir_entry_remove_4_iext_count_overflow_check
+       write_unwritten_0_iext_count_overflow_check
+       write_unwritten_1_iext_count_overflow_check
+       reflink_end_cow_iext_count_overflow_check
+       reflink_remap_iext_count_overflow_check
+       swap_rmap_iext_count_overflow_check
 )
 
 for t in ${tests}; do
