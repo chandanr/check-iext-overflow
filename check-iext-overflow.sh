@@ -366,7 +366,7 @@ dir_entry_create_1_iext_count_overflow_check()
 	# xfs_io -x -c 'fsmap' $mntpnt
 
 	for i in $(seq 1 $nr_dents); do
-		link $testfile ${mntpnt}/$(uuidgen) || break;
+		ln $testfile ${mntpnt}/$(uuidgen) || break;
 	done
 
 	xfs_bmap ${mntpnt}
