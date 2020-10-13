@@ -275,26 +275,38 @@ attr_iext_remove_count_overflow_check()
 {
 	attr_len=$(uuidgen | wc -c)
 	blksz=$(stat -f -c %S ${mntpnt})
-	# Todo: Calculate the number of blocks correctly. The current number is
-	# a loose upper bound.
-	nr_attrs=$(($blksz * 2 / $attr_len))
+	nr_attrs=$(($blksz / $attr_len))
 	testfile=${mntpnt}/testfile
 
-	touch $testfile
 	dd if=/dev/zero of=${testfile} bs=4k
 	sync
 	/root/repos/xfstests-dev/src/punch-alternating $testfile
 	sync
 
+	ino=$(stat -c %i $testfile)
+
 	print "nr_attrs = $nr_attrs; attr_len = $attr_len"
 
-	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
-
+	naextents=0
 	last=""
-	for i in $(seq 1 $nr_attrs); do
-		last="trusted.""$(uuidgen)"
-		setfattr -n $last $testfile || break;
+	while [[ $naextents < 4 ]]; do
+		xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+		for i in $(seq 1 $nr_attrs); do
+			last="trusted.""$(uuidgen)"
+			setfattr -n $last $testfile || break;
+		done
+
+		umount $mntpnt
+
+		naextents=$(xfs_db -f -c "inode $ino" -c "print core.naextents" $dev)
+		naextents=${naextents##core.naextents = }
+
+		mount -o uquota $dev $mntpnt || \
+			{ print "Unable to mount $dev"; exit 1 }
 	done
+
+	echo "Final naextents = $naextents"
 
 	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
 
