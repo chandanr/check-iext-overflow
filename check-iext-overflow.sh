@@ -432,11 +432,12 @@ dir_entry_create_3_iext_count_overflow_check()
 	xfs_bmap ${mntpnt}
 }
 
+# directory rename: src directory causing extent overflow
 dir_entry_create_4_iext_count_overflow_check()
 {
 	dent_len=$(uuidgen | wc -c)
 	blksz=$(stat -f -c %S ${mntpnt})
-	nr_dents=$(($dirbsize * 3 / $dent_len))
+	nr_dents=$(($dirbsize / $dent_len))
 	testfile=${mntpnt}/testfile
 	srcdir=${mntpnt}/srcdir
 	dstdir=${mntpnt}/dstdir
@@ -448,18 +449,31 @@ dir_entry_create_4_iext_count_overflow_check()
 	/root/repos/xfstests-dev/src/punch-alternating $testfile
 	sync
 
-	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+	ino=$(stat -c %i $srcdir)
+	nextents=0
+	last=""
 
-	for i in $(seq 1 $nr_dents); do
-		touch ${srcdir}/$(uuidgen) || break
+	while [[ $nextents < 4 ]]; do
+		xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+		for i in $(seq 1 $nr_dents); do
+			last=${srcdir}/$(uuidgen)
+			touch $last || break
+		done
+
+		umount $mntpnt
+
+		nextents=$(xfs_db -f -c "inode $ino" -c "print core.nextents" $dev)
+		nextents=${nextents##core.nextents = }
+
+		print "nextents = $nextents"
+		mount -o uquota $dev $mntpnt || \
+			{ print "Unable to mount $dev"; exit 1 }
 	done
 
 	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
 
-	for dentry in $(ls -1 $srcdir); do
-		mv ${srcdir}/${dentry} $dstdir || break
-	done
-
+	mv $last $dstdir
 }
 
 dir_entry_remove_4_iext_count_overflow_check()
