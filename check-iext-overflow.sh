@@ -480,7 +480,7 @@ dir_entry_remove_4_iext_count_overflow_check()
 {
 	dent_len=$(uuidgen | wc -c)
 	blksz=$(stat -f -c %S ${mntpnt})
-	nr_dents=$(($dirbsize * 3 / $dent_len))
+	nr_dents=$(($dirbsize / $dent_len))
 	testfile=${mntpnt}/testfile
 
 	touch $testfile
@@ -491,17 +491,31 @@ dir_entry_remove_4_iext_count_overflow_check()
 
 	print "nr_dents = $nr_dents; dent_len = $dent_len"
 
-	xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
-
+	ino=$(stat -c %i $mntpnt)
+	nextents=0
 	last=""
-	for i in $(seq 1 $nr_dents); do
-		last=$(uuidgen)
-		touch ${mntpnt}/$last
+
+	while [[ $nextents < 4 ]]; do
+		xfs_io -x -c 'inject bmap_alloc_minlen_extent' $mntpnt
+
+		for i in $(seq 1 $nr_dents); do
+			last=$(uuidgen)
+			touch ${mntpnt}/$last
+		done
+
+		umount $dev
+
+		nextents=$(xfs_db -f -c "inode $ino" -c "print core.nextents" $dev)
+		nextents=${nextents##core.nextents = }
+
+		print "nextents = $nextents"
+		mount -o uquota $dev $mntpnt || \
+			{ print "Unable to mount $dev"; exit 1 }
 	done
 
 	xfs_io -x -c 'inject reduce_max_iextents' $mntpnt
 
-	rm  ${mntpnt}/$last
+	rm ${mntpnt}/$last
 
 	xfs_bmap ${mntpnt}
 }
